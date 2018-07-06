@@ -10,7 +10,8 @@ P = [16, 7, 20, 21, 29, 12, 28, 17,
      2, 8, 24, 14, 32, 27, 3, 9,
      19, 13, 30, 6, 22, 11, 4, 25]
 
-PInv = [8, 16, 22, 30, 12, 27, 1, 17, 23, 15, 29, 5, 25, 19, 9, 0, 7, 13, 24, 2, 3, 28, 10, 18, 31, 11, 21, 6, 4, 26, 14, 20] ;
+PInv = [9, 17, 23, 31, 13, 28, 2, 18, 24, 16, 30, 6, 26, 20, 10, 1, 8, 14, 25, 3, 4, 29, 11, 19, 32, 12, 22, 7, 5, 27, 15, 21] ;
+
 
 
 SHIFT = [8, 8, 8, 8, 0] ;
@@ -141,7 +142,7 @@ class simple_block_cipher(object):
 
     # 'key' is supposed to be Unknown.
     @staticmethod
-    def find_key(delta_X, delta_Y, key, iter = 10):
+    def find_key(delta_X, delta_Y, key, iter = 100):
         key_proba = {} ;
         delta_Z = simple_block_cipher.apply_permutation(P, delta_Y, 32);
         delta_Z = simple_block_cipher.apply_permutation(P, delta_Z, 32);
@@ -162,7 +163,7 @@ class simple_block_cipher(object):
                 Q_ret = simple_block_cipher.update_state_with_sbox(SBoxInv, Q_ret);
                 Q2_ret = simple_block_cipher.apply_permutation(PInv, Q2_ret, 32);
                 Q2_ret = simple_block_cipher.update_state_with_sbox(SBoxInv, Q2_ret);
-                print(">>> "+bin(Q_ret^Q2_ret)[2:].zfill(32)) ;
+                # print(">>> "+bin(Q_ret^Q2_ret)[2:].zfill(32)) ;
                 if (Q_ret^Q2_ret) == delta_Y:
                     if not(key in key_proba):
                         key_proba[key] = 1 ;
@@ -176,31 +177,23 @@ simple_block_cipher.nb_round = 4 ;
 
 if __name__ == "__main__":
     key = 0xDEADBEEF ;
-    plain = 0x0000000A
+    plain = 0xCAFEBABA ;
     cipher = simple_block_cipher.encrypt(plain, key) ;
 
     print(hex(cipher)) ;
     print(hex(simple_block_cipher.decrypt(cipher, key))) ;
 
+    # Z = simple_block_cipher.apply_permutation(P, plain, 32) ;
+    # Z = simple_block_cipher.apply_permutation(PInv, Z, 32) ;
+    #
+    # print(hex(Z)) ;
+    #
+    # print(simple_block_cipher.compute_inverse_SBox(P)) ;
 
     A = simple_block_cipher.compute_differential_path(0xB) ;
-    # Delta_Y = A[0] ;
-    print(hex(A[0])[2:].zfill(8)) ;
-    print(A[1]) ;
+    delta_Y = A[0] ;
+    print(delta_Y)
 
-    delta_Y = 0x80001000 ;
-
-
-
-
-
-
-    # for i in iter:
-    #     print(bin(i)[2:].zfill(32)) ;
-
-
-
-    print(bin(delta_Y))
-
-    proba = simple_block_cipher.find_key(0xB, delta_Y, key) ;
+    proba = simple_block_cipher.find_key(0xB, delta_Y, key);
     print(proba)
+
