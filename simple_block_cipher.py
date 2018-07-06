@@ -13,7 +13,7 @@ P = [16, 7, 20, 21, 29, 12, 28, 17,
 PInv = [8, 16, 22, 30, 12, 27, 1, 17, 23, 15, 29, 5, 25, 19, 9, 0, 7, 13, 24, 2, 3, 28, 10, 18, 31, 11, 21, 6, 4, 26, 14, 20] ;
 
 
-SHIFT = [9, 7, 7, 9, 0] ;
+SHIFT = [8, 8, 8, 8, 0] ;
 
 
 class simple_block_cipher(object):
@@ -66,8 +66,6 @@ class simple_block_cipher(object):
             ret ^= subkey;
         return ret;
 
-
-
     @staticmethod
     def compute_inverse_SBox(S):
         ret = [0 for _ in range(len(S))] ;
@@ -90,39 +88,87 @@ class simple_block_cipher(object):
                 ret[delta_x][delta_y] += 1 ;
         return ret ;
 
+    # greedy algorithm for now :-(
     @staticmethod
-    def compute_differential_path(S, S_index):
-        DDT = simple_block_cipher.compute_difference_distribution_table(S);
-        current_max = 0 ;
-        for l in DDT:
-            if max(l) > current_max:
-                current_max = max(l) ;
-                delta = l.index(current_max) ;
-        proba = [0 for _ in range(8)] ;
-        tmp_proba = [0 for _ in range(8)] ;
-        state = delta << ((7-S_index) << 2) ;
-        simple_block_cipher.apply_permutation(P, state, 32);
-        for i in range(1,3):
+    def compute_differential_path(Delta_X):
+        DDT = simple_block_cipher.compute_difference_distribution_table(SBox);
+        state = Delta_X ;
+        current_proba = 1 ;
+        for i in range(simple_block_cipher.nb_round-2): # R-1 Round.
             new_state = 0 ;
             for j in range(8):
-                tmp_state = (state >> ((7-j) << 2)) & 0xF ;
-                if tmp_state:
-                    current_max = max(DDT[tmp_state]) ;
-                    new_state = current_max << ((7-j) << 2) ;
-                    
-                    for k in range(4):
-                        current_max
-                        pass ;
-                state = new_state ;
-                simple_block_cipher.apply_permutation(P, state, 32);
+                sbox_input = (state >> ((7-j) << 2)) & 0xF ;
+                new_state = new_state << 4 ;
+                if sbox_input: # != 0
+                    max_proba = max(DDT[sbox_input]) ; # Greedy, greedy ;-)
+                    delta_y = DDT[sbox_input].index(max_proba) ;
+                    current_proba = current_proba*(max_proba/16.0) ;
+                    new_state ^= delta_y ;
+            state = simple_block_cipher.apply_permutation(P, new_state, 32) ;
+        return (state, current_proba) ;
 
 
+    @staticmethod
+    def HW(a):
+        return 0 if a == 0 else simple_block_cipher.HW(a >> 1)+(a&1) ;
+
+    @staticmethod
+    def iterate_key(delta_y):
+        copy_delta_y = delta_y ;
+        sbox_pos = [] ;
+        for i in range(8):
+            if copy_delta_y & 0xF:
+                sbox_pos.append(i) ;
+            copy_delta_y = copy_delta_y >> 4 ;
+        upper_bound = 1 << (len(sbox_pos) << 2) ;
+        for i in range(upper_bound):
+            key = 0 ;
+            for j in range(len(sbox_pos)):
+                copy_i = i >> ((len(sbox_pos)-1-j) << 2) & 0xF ;
+                key ^= (copy_i << ((7-sbox_pos[j]) << 2)) ;
+            yield key ;
 
 
-        print(delta) ;
+    @staticmethod
+    def update_state_with_sbox(S, state):
+        ret = 0 ;
+        for j in range(8):
+            sbox_input = state >> ((7 - j) << 2) & 0xF;
+            sbox_output = SBoxInv[sbox_input];
+            ret = (ret << 4) ^ sbox_output;
+        return ret ;
 
 
-
+    # 'key' is supposed to be Unknown.
+    @staticmethod
+    def find_key(delta_X, delta_Y, key, iter = 10):
+        key_proba = {} ;
+        delta_Z = simple_block_cipher.apply_permutation(P, delta_Y, 32);
+        delta_Z = simple_block_cipher.apply_permutation(P, delta_Z, 32);
+        for _ in range(iter):
+            Plain = random.randint(0, 1 << 32 - 1);
+            Plain2 = Plain ^ delta_X;
+            Plain = simple_block_cipher.encrypt(Plain, key)
+            Plain2 = simple_block_cipher.encrypt(Plain2, key)
+            P_ret = simple_block_cipher.apply_permutation(PInv, Plain, 32);
+            P_ret = simple_block_cipher.update_state_with_sbox(SBoxInv, P_ret);
+            P2_ret = simple_block_cipher.apply_permutation(PInv, Plain2, 32);
+            P2_ret = simple_block_cipher.update_state_with_sbox(SBoxInv, P2_ret);
+            key_iterator = simple_block_cipher.iterate_key(delta_Z);
+            for key in key_iterator:
+                Q_ret = P_ret^key ;
+                Q2_ret = P2_ret^key ;
+                Q_ret = simple_block_cipher.apply_permutation(PInv, Q_ret, 32);
+                Q_ret = simple_block_cipher.update_state_with_sbox(SBoxInv, Q_ret);
+                Q2_ret = simple_block_cipher.apply_permutation(PInv, Q2_ret, 32);
+                Q2_ret = simple_block_cipher.update_state_with_sbox(SBoxInv, Q2_ret);
+                print(">>> "+bin(Q_ret^Q2_ret)[2:].zfill(32)) ;
+                if (Q_ret^Q2_ret) == delta_Y:
+                    if not(key in key_proba):
+                        key_proba[key] = 1 ;
+                    else:
+                        key_proba[key] += 1;
+        return key_proba ;
 
 
 simple_block_cipher.nb_round = 4 ;
@@ -136,10 +182,25 @@ if __name__ == "__main__":
     print(hex(cipher)) ;
     print(hex(simple_block_cipher.decrypt(cipher, key))) ;
 
-    print(">>> "+str(P[18]))
+
+    A = simple_block_cipher.compute_differential_path(0xB) ;
+    # Delta_Y = A[0] ;
+    print(hex(A[0])[2:].zfill(8)) ;
+    print(A[1]) ;
+
+    delta_Y = 0x80001000 ;
 
 
-    DDT = simple_block_cipher.compute_difference_distribution_table(SBox) ;
 
 
-    simple_block_cipher.compute_differential_path(SBox, 0xB)
+
+
+    # for i in iter:
+    #     print(bin(i)[2:].zfill(32)) ;
+
+
+
+    print(bin(delta_Y))
+
+    proba = simple_block_cipher.find_key(0xB, delta_Y, key) ;
+    print(proba)
